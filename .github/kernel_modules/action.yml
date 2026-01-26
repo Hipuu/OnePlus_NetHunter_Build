@@ -370,7 +370,7 @@ runs:
         CONFIG_DIR="$GITHUB_WORKSPACE/$CONFIG"
         OUT="$COMMON_KERNEL_DIR/out"
         MODULES_SRC="$OUT/modules"
-        MODULES_ZIP="$CONFIG_DIR/artifacts/kernel_modules_${{ env.OP_MODEL }}.zip"
+        MODULES_ZIP="$CONFIG_DIR/artifacts/kernel_modules_${{ env.OP_MODEL }}_${{ env.OP_OS_VERSION }}.zip"
         mkdir -p "$CONFIG_DIR/artifacts"
         find "$MODULES_SRC" -type f -name '*.ko' -print0 | xargs -0 zip -j "$MODULES_ZIP"
         echo "Packaged kernel modules to $MODULES_ZIP"
@@ -401,5 +401,5 @@ runs:
       if: success() && steps.create_zip.conclusion == 'success'
       uses: actions/upload-artifact@v4
       with:
-        name: kernel-modules-${{ env.CONFIG }}
+        name: kernel-modules-${{ env.CONFIG }}-${{ env.OP_OS_VERSION }}
         path: ${{ env.CONFIG }}/artifacts/
