@@ -46,11 +46,13 @@ runs:
         branch="$OP_BRANCH"
         manifest="$OP_MANIFEST"
         optimize='${{ inputs.optimize_level }}'
+        rust_build="$OP_RUST_BUILD"
     
         [[ -n "$model" ]] || { echo "Input 'model' cannot be empty"; exit 1; }
         [[ -n "$soc" ]] || { echo "Input 'soc' cannot be empty"; exit 1; }
         [[ -n "$branch" ]] || { echo "Input 'branch' cannot be empty"; exit 1; }
         [[ -n "$manifest" ]] || { echo "Input 'manifest' cannot be empty"; exit 1; }
+        [[ -n "$rust_build" ]] || { echo "Input 'rust_build' cannot be empty"; exit 1; }
     
         case "$optimize" in
           O2|O3) ;; 
@@ -71,6 +73,21 @@ runs:
           libxml2-utils rsync unzip dwarves file python3 ccache
         sudo apt-get clean
         echo "::endgroup::"
+
+    - name: Install bindgen only (no rustc)
+      shell: bash
+      if: ${{ env.OP_RUST_BUILD == 'true' }}
+      run: |
+        # Install bindgen via cargo (no full rustc needed)
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+        source $HOME/.cargo/env
+        
+        # Install bindgen CLI only (~50-100MB total)
+        cargo install bindgen-cli --version 0.69.5
+        
+        # Verify
+        bindgen --version
+        which bindgen
 
     - name: Setup Base Environment
       shell: bash
@@ -270,30 +287,55 @@ runs:
         sed -i 's/$(CONFIG_RTW88)/m/g' Makefile
         sed -i '/^source "drivers\/net\/wireless\/realtek\/rtw88\/Kconfig"$/s/.*/ /' Kconfig
 
-    - name: Detect Clang (toolchain for build)
+    - name: Detect Clang and Rust (toolchain for build)
       shell: bash
       run: |
         set -euo pipefail
         KP="$GITHUB_WORKSPACE/$CONFIG/kernel_platform"
         CLANG_FOUND=false
+        RUSTC_FOUND=false
+        
         for base in "$KP/prebuilts" "$KP/prebuilts-master"; do
           [ -d "$base/clang/host/linux-x86" ] || continue
           latest=$(ls -d "$base"/clang/host/linux-x86/clang-r*/ 2>/dev/null | sort -V | tail -n1 || true)
           if [ -n "$latest" ] && [ -x "$latest/bin/clang" ]; then
             CLANG_BIN="$latest/bin"
             CLANG_FOUND=true
+            break
           fi
         done
+        
+        for base in "$KP/prebuilts" "$KP/prebuilts-master"; do
+          [ -d "$base/rust/linux-x86/" ] || continue
+          ls -la "$base/rust/linux-x86/"
+          latest=$(ls -d "$base/rust/linux-x86/1."* 2>/dev/null | sort -V | head -n1 || true)
+          if [ -n "$latest" ] && [ -x "$latest/bin/rustc" ]; then
+            RUSTC_BIN="$latest/bin"
+            RUSTC_FOUND=true
+            break
+          fi
+        done
+        
         if ! $CLANG_FOUND && command -v clang >/dev/null 2>&1; then
           CLANG_BIN="$(dirname "$(command -v clang)")"
           CLANG_FOUND=true
           echo "Using system clang."
         fi
+        
         $CLANG_FOUND || { echo "No clang toolchain found"; exit 1; }
         echo "CLANG_BIN_PATH=$CLANG_BIN" >> "$GITHUB_ENV"
         CLANG_VERSION="$($CLANG_BIN/clang --version | head -n1)"
         echo "CLANG_VERSION=$CLANG_VERSION" >> "$GITHUB_ENV"
         echo "Detected Clang: $CLANG_VERSION"
+        
+        if [ "$RUSTC_FOUND" = true ]; then
+          echo "RUSTC_BIN_PATH=$RUSTC_BIN" >> "$GITHUB_ENV"
+          RUSTC_VERSION="$("$RUSTC_BIN/rustc" --version | head -n1)"
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+          echo "✅ Detected RUSTC: $RUSTC_VERSION"
+        else
+           echo "::warning::No RUST toolchain found! Ignoring"
+        fi
 
     - name: Build Kernel Modules 
       shell: bash
@@ -304,6 +346,15 @@ runs:
         
         export PATH="${CLANG_BIN_PATH}:$PATH" 
         export PATH="/usr/lib/ccache:$PATH"
+        
+        if [ -n "${RUSTC_BIN_PATH:-}" ]; then
+          export PATH="${RUSTC_BIN_PATH}:${PATH}"
+          export RUSTC="$RUSTC_BIN_PATH/rustc"
+          if [ "${{ env.OP_RUST_BUILD}}" = "true" ]; then
+            export LIBCLANG_PATH="$CLANG_BIN_PATH/../lib"
+            export BINDGEN="bindgen"
+          fi
+        fi
 
         VENDOR_CONFIG="$VENDOR_KERNEL_DIR/arch/arm64/configs/vendor/${OP_SOC}_GKI.config"
         FALLBACK_CONFIG="$VENDOR_KERNEL_DIR/arch/arm64/configs/vendor/pineapple_GKI.config"
@@ -322,6 +373,11 @@ runs:
         echo "CONFIG_LTO_CLANG=y" >> ./arch/arm64/configs/gki_defconfig
         echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> "./arch/arm64/configs/gki_defconfig"
         echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=n" >> "./arch/arm64/configs/gki_defconfig"
+        
+        if [ "${{ env.OP_RUST_BUILD}}" = "true" ]; then
+           echo "CONFIG_ANDROID_BINDER_IPC_RUST=m" >> "./arch/arm64/configs/gki_defconfig"
+           echo "CONFIG_RUST=y" >> "./arch/arm64/configs/gki_defconfig"
+        fi
 
         INSTALL_MOD_PATH="$COMMON_KERNEL_DIR/out"
         
