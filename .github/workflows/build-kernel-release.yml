@@ -219,19 +219,19 @@ jobs:
             value="${susfs_inputs[$key]}"
             
             if [ -z "$value" ]; then
-              echo "- $key: 🔄 auto (\\\`gki-$key\\\")" >> $GITHUB_STEP_SUMMARY
+              echo "- $key: 🔄 auto (master)" >> $GITHUB_STEP_SUMMARY
             else
               echo "- $key: 📌 \"$value\"" >> $GITHUB_STEP_SUMMARY
             fi
           done
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **💡 Note:** Empty values auto-map to matching \`gki-androidX-Y.Z\` branches." >> $GITHUB_STEP_SUMMARY
+          echo "> **💡 Note:** Empty values auto-map to master branch (latest)." >> $GITHUB_STEP_SUMMARY
           
           # Add OOS restriction note for android-kernel filters
           if [[ "${{ inputs.op_model }}" == android*-*.* ]]; then
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "> **⚠️ Android-Kernel Filter:** Only OOS15 and OOS16 devices will be built for \`${{ inputs.op_model }}`" >> $GITHUB_STEP_SUMMARY
+            echo "> **⚠️ Android-Kernel Filter:** Only OOS15 and OOS16 devices will be built for \`${{ inputs.op_model }}\`" >> $GITHUB_STEP_SUMMARY
           fi
 
   build-kernel: # Renamed from 'build' to avoid conflict with the action name
@@ -313,7 +313,8 @@ jobs:
           # If empty, it will be auto-resolved to gki-* branch in the action
           if [ -z "$susfs_branch" ]; then
             echo "ℹ️  No custom SUSFS branch specified for $key"
-            echo "   Will auto-select: gki-$key"
+            echo "   Will auto-select: master"
+            susfs_branch="master"
           else
             echo "✅ Using custom SUSFS branch for $key: '$susfs_branch'"
           fi
@@ -437,7 +438,7 @@ jobs:
           
           if [ "${{ matrix.susfs }}" = true ]; then
             cat >> $GITHUB_STEP_SUMMARY << EOF
-          **SUSFS Branch:** `${{ steps.susfs.outputs.susfs_branch || format('(auto: gki-{0}-{1})', matrix.android_version, matrix.kernel_version) }}`
+          **SUSFS Branch:** `${{ steps.susfs.outputs.susfs_branch || 'master (latest)' }}`
           EOF
           fi
           
@@ -648,11 +649,11 @@ jobs:
           SUSFS_A15="${{ inputs.android15-6_6_susfs_branch_or_commit }}"
           SUSFS_A16="${{ inputs.android16-6_12_susfs_branch_or_commit }}"
           
-          [ -z "$SUSFS_A12" ] && SUSFS_A12="gki-android12-5.10 (auto)"
-          [ -z "$SUSFS_A13" ] && SUSFS_A13="gki-android13-5.15 (auto)"
-          [ -z "$SUSFS_A14" ] && SUSFS_A14="gki-android14-6.1 (auto)"
-          [ -z "$SUSFS_A15" ] && SUSFS_A15="gki-android15-6.6 (auto)"
-          [ -z "$SUSFS_A16" ] && SUSFS_A16="gki-android16-6.12 (auto)"
+          [ -z "$SUSFS_A12" ] && SUSFS_A12="master (latest)"
+          [ -z "$SUSFS_A13" ] && SUSFS_A13="master (latest)"
+          [ -z "$SUSFS_A14" ] && SUSFS_A14="master (latest)"
+          [ -z "$SUSFS_A15" ] && SUSFS_A15="master (latest)"
+          [ -z "$SUSFS_A16" ] && SUSFS_A16="master (latest)"
           
           cat << EOF > release_notes.md
           # 🎯 OnePlus Kernels with KernelSU Next & SUSFS $SUSFS_BASE_VERSION
@@ -780,6 +781,14 @@ jobs:
             - ✅ SUS_MAP - Memory mapping protection
             - ✅ AVC_SPOOF - Spoof Procfs avc denial logs
           - **Ptrace Leak Fix** - For kernels < 5.16
+          
+          ### 🐉 Kali NetHunter
+          - **HID Gadget** - HID keyboard/mouse attacks
+          - **DriveDroid** - USB Mass Storage emulation
+          - **Wireless Injection** - 802.11 frame injection support
+          - **SDR Support** - RTL-SDR, HackRF, AirSpy, etc.
+          - **Bluetooth** - HCI USB support
+          - **Ethernet** - USB Ethernet adapter support
           
           ### 🚀 Performance & Networking
           - **BBR** - Improved TCP congestion control
