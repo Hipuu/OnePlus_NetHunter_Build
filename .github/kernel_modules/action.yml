@@ -211,6 +211,10 @@ runs:
         
         cat >> arch/arm64/configs/gki_defconfig <<EOF
 
+        CONFIG_RFKILL=m
+        CONFIG_CFG80211=m
+        CONFIG_MAC80211=m
+
         CONFIG_WLAN_VENDOR_REALTEK=y
 
         CONFIG_WLAN_VENDOR_ATH=y
