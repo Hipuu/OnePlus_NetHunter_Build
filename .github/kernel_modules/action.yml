@@ -34,12 +34,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # WildKernels uses OP_MANIFEST in config, but here we might need to be careful if it differs.
-        # EmberHeart used: echo "OP_MANIFEST=$OP_MANIFEST_${{ inputs.manifest }}_MODULES" >> "$GITHUB_ENV"
-        # WildKernels passes the manifest filename in the json.
-        # We will trust the JSON config's manifest but check if we need to append _MODULES if separate manifests exist.
-        # Looking at WildKernels manifests, they are full XMLs.
-        # We'll rely on the parsed OP_MANIFEST from config.json.
         echo "Using manifest from config: $OP_MANIFEST"
     
     - name: Validate Inputs
@@ -53,16 +47,14 @@ runs:
         manifest="$OP_MANIFEST"
         optimize='${{ inputs.optimize_level }}'
     
-        # Non-empty checks
         [[ -n "$model" ]] || { echo "Input 'model' cannot be empty"; exit 1; }
         [[ -n "$soc" ]] || { echo "Input 'soc' cannot be empty"; exit 1; }
         [[ -n "$branch" ]] || { echo "Input 'branch' cannot be empty"; exit 1; }
         [[ -n "$manifest" ]] || { echo "Input 'manifest' cannot be empty"; exit 1; }
     
-        # Optimize level validation
         case "$optimize" in
-          O2|O3) ;;
-          *) echo "optimize_level must be O2 or O3; got '$optimize'"; exit 1 ;;
+          O2|O3) ;; 
+          *) echo "optimize_level must be O2 or O3; got '$optimize'"; exit 1 ;; 
         esac
         echo "Input validation OK."
         echo "::endgroup::"
@@ -84,10 +76,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # Derive a unique build directory name
         CONFIG="$OP_MODEL"
         echo "CONFIG=$CONFIG" >> "$GITHUB_ENV"
-        # Install repo tool if missing
         REPO="/usr/local/bin/repo"
         if [ ! -x "$REPO" ]; then
           curl -s https://storage.googleapis.com/git-repo-downloads/repo -o "$REPO"
@@ -104,31 +94,17 @@ runs:
         cd "$CONFIG"
         echo "Initializing and syncing kernel source..."
         
-        # WildKernels logic for syncing
         if [[ "$OP_MANIFEST" == https://* ]]; then
           mkdir -p .repo/manifests
           curl --fail --show-error --location --proto '=https' "$OP_MANIFEST" -o .repo/manifests/temp_manifest.xml
           "$REPO" init -u https://github.com/OnePlusOSS/kernel_manifest.git -b oneplus/sm8650 -m temp_manifest.xml --repo-rev=v2.16 --depth=1 --no-clone-bundle --no-tags
         elif [[ "$OP_BRANCH" == wild/* ]]; then
-           # Handling wild/* branch convention from WildKernels main action
-           mkdir -p .repo/manifests
-           # We need OS_VERSION to find the manifest folder locally if we were copying, but we are in a fresh composite action.
-           # However, WildKernels main action copies from local. Here we might need to fetch it or rely on URL.
-           # If manifest is just a filename, we might have trouble if we don't have the local repo checked out fully.
-           # But wait, the workflow checks out the code.
-           
-           # If we are using a local manifest file (e.g. "oneplus_12_v.xml"), we need to know where it is.
-           # In main action: cp "../manifests/$(echo "$OP_OS_VERSION" | tr '[:upper:]' '[:lower:]')/$OP_MANIFEST" .repo/manifests/temp_manifest.xml
-           # We need to replicate this path logic.
-           
            OS_LOWER=$(echo "$OP_OS_VERSION" | tr '[:upper:]' '[:lower:]')
-           # We are in $CONFIG dir. The manifests are in ../manifests/$OS_LOWER/
            if [ -f "../manifests/$OS_LOWER/$OP_MANIFEST" ]; then
              mkdir -p .repo/manifests
              cp "../manifests/$OS_LOWER/$OP_MANIFEST" .repo/manifests/temp_manifest.xml
              "$REPO" init -u https://github.com/OnePlusOSS/kernel_manifest.git -b "oneplus/sm8650" -m temp_manifest.xml --repo-rev=v2.16 --depth=1 --no-clone-bundle --no-tags
            else
-             # Fallback to standard init if file not found (or if it's not a wild branch needing this)
              "$REPO" init -u https://github.com/OnePlusOSS/kernel_manifest.git -b "$OP_BRANCH" -m "$OP_MANIFEST" --repo-rev=v2.16 --depth=1 --no-clone-bundle --no-tags
            fi
         else
@@ -148,23 +124,34 @@ runs:
         done
         $success || { echo "repo sync failed after 3 attempts"; exit 1; }
         
-    - name: Get Kernel Version Info
+    - name: Set Directories
       shell: bash
       run: |
         set -euo pipefail
         CONFIG_DIR="$GITHUB_WORKSPACE/$CONFIG"
+        
+        COMMON_DIR="$CONFIG_DIR/kernel_platform/common"
+        if [ ! -d "$COMMON_DIR" ]; then
+            echo "Error: Common kernel directory not found at $COMMON_DIR"
+            exit 1
+        fi
+        echo "COMMON_KERNEL_DIR=$COMMON_DIR" >> "$GITHUB_ENV"
+        
+        if [ -d "$CONFIG_DIR/kernel_platform/msm-kernel" ]; then
+             VENDOR_DIR="$CONFIG_DIR/kernel_platform/msm-kernel"
+        else
+             VENDOR_DIR="$CONFIG_DIR"
+        fi
+        echo "VENDOR_KERNEL_DIR=$VENDOR_DIR" >> "$GITHUB_ENV"
+        
         ARTIFACTS_DIR="$CONFIG_DIR/artifacts"
         mkdir -p "$ARTIFACTS_DIR"
         
-        # Check both common and msm-kernel locations
-        if [ -d "$CONFIG_DIR/kernel_platform/msm-kernel" ]; then
-             cd "$CONFIG_DIR/kernel_platform/msm-kernel"
-        elif [ -d "$CONFIG_DIR/kernel_platform/common" ]; then
-             cd "$CONFIG_DIR/kernel_platform/common"
-        else
-             echo "Error: Could not find kernel directory"
-             exit 1
-        fi
+    - name: Get Kernel Version Info
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$COMMON_KERNEL_DIR"
 
         CONFIG_FILES=("build.config.common" "build.config.constants")
         BRANCH_LINE=""
@@ -187,6 +174,8 @@ runs:
         PATCHLEVEL=$(grep '^PATCHLEVEL *=' Makefile | awk '{print $3}')
         SUBLEVEL=$(grep '^SUBLEVEL *=' Makefile | awk '{print $3}')
         FULL_VERSION="$VERSION.$PATCHLEVEL.$SUBLEVEL"
+        
+        ARTIFACTS_DIR="$GITHUB_WORKSPACE/$CONFIG/artifacts"
         cd "$ARTIFACTS_DIR"
         echo "ANDROID_VER=$ANDROID_VERSION" >> "$GITHUB_ENV"
         echo "KERNEL_VER=$VERSION.$PATCHLEVEL" >> "$GITHUB_ENV"
@@ -208,16 +197,18 @@ runs:
       run: |
         set -euo pipefail
         cd "$CONFIG/kernel_platform"
-        rm -f msm-kernel/android/abi_gki_protected_exports_* || true
+        rm -f common/android/abi_gki_protected_exports_* || true
+        if [ -d "msm-kernel" ]; then
+            rm -f msm-kernel/android/abi_gki_protected_exports_* || true
+        fi
         df -h
 
     - name: Add nethunter specfic drivers already present in kernel to be built as modules
       shell: bash
       run: |
         set -euo pipefail
-        KERNEL_PATH="$GITHUB_WORKSPACE/$CONFIG/kernel_platform"
-        MSM="$KERNEL_PATH/msm-kernel"
-        cd "$MSM"
+        cd "$COMMON_KERNEL_DIR"
+        
         cat >> arch/arm64/configs/gki_defconfig <<EOF
 
         CONFIG_WLAN_VENDOR_REALTEK=y
@@ -262,18 +253,14 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        KERNEL_PATH="$GITHUB_WORKSPACE/$CONFIG/kernel_platform"
-        MSM="$KERNEL_PATH/msm-kernel"
-        cd "$MSM"
+        cd "$COMMON_KERNEL_DIR"
         curl -LSs "https://raw.githubusercontent.com/Poko-Apps/MemKernel/main/kernel/setup.sh" | bash -s M br0k3n
 
     - name: Add rtw88 modules
       shell: bash
       run: |
         set -euo pipefail
-        KERNEL_PATH="$GITHUB_WORKSPACE/$CONFIG/kernel_platform"
-        MSM="$KERNEL_PATH/msm-kernel"
-        cd "$MSM/drivers/net/wireless/realtek/"
+        cd "$COMMON_KERNEL_DIR/drivers/net/wireless/realtek/"
         rm -rf rtw88
         git clone https://github.com/lwfinger/rtw88.git
         sed -i 's/$(CONFIG_RTW88)/m/g' Makefile
@@ -308,33 +295,31 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        KERNEL_PLATFORM="$GITHUB_WORKSPACE/$CONFIG/kernel_platform"
-        MSM="$KERNEL_PLATFORM/msm-kernel"
-        OUT=out
+        
+        cd "$COMMON_KERNEL_DIR"
+        
         export PATH="${CLANG_BIN_PATH}:$PATH" 
         export PATH="/usr/lib/ccache:$PATH"
-        
-        cd "$MSM"
 
-        # Merge defconfig fragments from vendor/pineapple_GKI.config if it exists
-        # WildKernels supports multiple SoCs (pineapple, kalama, etc).
-        # We should check if the config file exists before catting.
-        if [ -f "arch/arm64/configs/vendor/${OP_SOC}_GKI.config" ]; then
-           cat "arch/arm64/configs/vendor/${OP_SOC}_GKI.config" >> ./arch/arm64/configs/gki_defconfig
-        elif [ -f "arch/arm64/configs/vendor/pineapple_GKI.config" ]; then
-           # Fallback or maybe user generic logic? 
-           # EmberHeart hardcoded pineapple_GKI. We should be safer.
-           echo "Warning: Specific vendor config not found, checking pineapple..."
-           cat arch/arm64/configs/vendor/pineapple_GKI.config >> ./arch/arm64/configs/gki_defconfig || true
+        VENDOR_CONFIG="$VENDOR_KERNEL_DIR/arch/arm64/configs/vendor/${OP_SOC}_GKI.config"
+        FALLBACK_CONFIG="$VENDOR_KERNEL_DIR/arch/arm64/configs/vendor/pineapple_GKI.config"
+        
+        if [ -f "$VENDOR_CONFIG" ]; then
+           echo "Merging vendor config: $VENDOR_CONFIG"
+           cat "$VENDOR_CONFIG" >> ./arch/arm64/configs/gki_defconfig
+        elif [ -f "$FALLBACK_CONFIG" ]; then
+           echo "Merging fallback vendor config: $FALLBACK_CONFIG"
+           cat "$FALLBACK_CONFIG" >> ./arch/arm64/configs/gki_defconfig
+        else
+           echo "Warning: No vendor GKI config found!"
         fi
 
-        # Thin LTO
         echo "CONFIG_LTO_CLANG_THIN=y" >> ./arch/arm64/configs/gki_defconfig                                                                            
         echo "CONFIG_LTO_CLANG=y" >> ./arch/arm64/configs/gki_defconfig
         echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> "./arch/arm64/configs/gki_defconfig"
         echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=n" >> "./arch/arm64/configs/gki_defconfig"
 
-        INSTALL_MOD_PATH="$MSM/out"
+        INSTALL_MOD_PATH="$COMMON_KERNEL_DIR/out"
         
         echo "Building kernel modules..."
         make ARCH=arm64 LLVM=1 O=out gki_defconfig   
@@ -345,11 +330,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        KERNEL_PLATFORM="$GITHUB_WORKSPACE/$CONFIG/kernel_platform"
-        MSM="$KERNEL_PLATFORM/msm-kernel"
-        OUT="$MSM/out"
+        OUT="$COMMON_KERNEL_DIR/out"
         
-        # Check if modules dir exists
         if [ ! -d "$OUT/lib/modules" ]; then
             echo "Error: No modules found in $OUT/lib/modules"
             exit 1
@@ -365,9 +347,7 @@ runs:
 
         echo "Removing unnecessary modules..."
         cd modules
-        # Download default module list
         curl -L -o default_modules.txt https://raw.githubusercontent.com/nullptr-t-oss/kernel_patches/refs/heads/main/default_modules.txt
-        # Remove modules in the default list
         
         while IFS= read -r module; do
           if [ -e "$module" ]; then
@@ -384,9 +364,7 @@ runs:
       run: |
         set -euo pipefail
         CONFIG_DIR="$GITHUB_WORKSPACE/$CONFIG"
-        KERNEL_PLATFORM="$CONFIG_DIR/kernel_platform"
-        MSM="$KERNEL_PLATFORM/msm-kernel"
-        OUT="$MSM/out"
+        OUT="$COMMON_KERNEL_DIR/out"
         MODULES_SRC="$OUT/modules"
         MODULES_ZIP="$CONFIG_DIR/artifacts/kernel_modules_${{ env.OP_MODEL }}.zip"
         mkdir -p "$CONFIG_DIR/artifacts"
