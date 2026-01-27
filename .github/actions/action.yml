@@ -788,12 +788,43 @@ runs:
         echo "Applying SUSFS patches..."
         
         echo "Listing patch source:"
-        ls -R "$SUSFS_FOLDER/kernel_patches/"
+        if [ -d "$SUSFS_FOLDER/kernel_patches" ]; then
+            ls -R "$SUSFS_FOLDER/kernel_patches/"
+        else
+            echo "::error::SUSFS patch folder not found at $SUSFS_FOLDER/kernel_patches"
+            exit 1
+        fi
         
-        cp -v "$SUSFS_FOLDER/kernel_patches/fs/"* "$COMMON_KERNEL_FOLDER/fs/"
-        cp -v "$SUSFS_FOLDER/kernel_patches/include/linux/"* "$COMMON_KERNEL_FOLDER/include/linux/"
+        # Robust Copying
+        if [ -d "$SUSFS_FOLDER/kernel_patches/fs" ]; then
+            echo "Copying fs patches..."
+            cp -v -r "$SUSFS_FOLDER/kernel_patches/fs/." "$COMMON_KERNEL_FOLDER/fs/" || echo "Warning: Copy fs failed or no files"
+        else
+             echo "Warning: No fs patches folder found in SUSFS"
+        fi
+
+        if [ -d "$SUSFS_FOLDER/kernel_patches/include/linux" ]; then
+            echo "Copying include patches..."
+            cp -v -r "$SUSFS_FOLDER/kernel_patches/include/linux/." "$COMMON_KERNEL_FOLDER/include/linux/" || echo "Warning: Copy include failed or no files"
+        else
+             echo "Warning: No include patches folder found in SUSFS"
+        fi
         
-        susfs_version=$(grep '#define SUSFS_VERSION' "$COMMON_KERNEL_FOLDER/include/linux/susfs.h" | awk -F'"' '{print $2}' || true)
+        SUSFS_HEADER="$COMMON_KERNEL_FOLDER/include/linux/susfs.h"
+        if [ -f "$SUSFS_HEADER" ]; then
+            susfs_version=$(grep '#define SUSFS_VERSION' "$SUSFS_HEADER" | awk -F'"' '{print $2}' || true)
+        else
+            echo "::error::susfs.h not found at $SUSFS_HEADER"
+            ls -l "$COMMON_KERNEL_FOLDER/include/linux/" | grep susfs || true
+            exit 1
+        fi
+        
+        if [ -z "$susfs_version" ]; then
+            echo "::error::Could not extract SUSFS_VERSION from $SUSFS_HEADER"
+            cat "$SUSFS_HEADER"
+            exit 1
+        fi
+
         echo "SUSVER=$susfs_version" >> $GITHUB_ENV
         echo "$susfs_version" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "SusFS Version: $susfs_version"
