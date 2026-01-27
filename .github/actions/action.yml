@@ -582,7 +582,7 @@ runs:
     - name: Clone AnyKernel3 and Other Dependencies
       shell: bash
       run: |
-        set -euo pipefail
+        set -euox pipefail
         echo "::group::Clone dependencies"
         echo "Cloning AnyKernel3 and other dependencies..."
         
@@ -782,14 +782,18 @@ runs:
       shell: bash
       if: ${{ env.OP_SUSFS == 'true' }}
       run: |
-        set -euo pipefail
+        set -euox pipefail
         echo "::group::Apply SUSFS patches"
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Applying SUSFS patches..."
-        cp "$SUSFS_FOLDER/kernel_patches/fs/"* "$COMMON_KERNEL_FOLDER/fs/"
-        cp "$SUSFS_FOLDER/kernel_patches/include/linux/"* "$COMMON_KERNEL_FOLDER/include/linux/"
         
-        susfs_version=$(grep '#define SUSFS_VERSION' "$COMMON_KERNEL_FOLDER/include/linux/susfs.h" | awk -F'"' '{print $2}')
+        echo "Listing patch source:"
+        ls -R "$SUSFS_FOLDER/kernel_patches/"
+        
+        cp -v "$SUSFS_FOLDER/kernel_patches/fs/"* "$COMMON_KERNEL_FOLDER/fs/"
+        cp -v "$SUSFS_FOLDER/kernel_patches/include/linux/"* "$COMMON_KERNEL_FOLDER/include/linux/"
+        
+        susfs_version=$(grep '#define SUSFS_VERSION' "$COMMON_KERNEL_FOLDER/include/linux/susfs.h" | awk -F'"' '{print $2}' || true)
         echo "SUSVER=$susfs_version" >> $GITHUB_ENV
         echo "$susfs_version" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "SusFS Version: $susfs_version"
