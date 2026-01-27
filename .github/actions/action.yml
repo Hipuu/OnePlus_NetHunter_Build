@@ -812,44 +812,10 @@ runs:
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Applying SUSFS patches..."
         
-        echo "Listing patch source:"
-        if [ -d "$SUSFS_FOLDER/kernel_patches" ]; then
-            ls -R "$SUSFS_FOLDER/kernel_patches/"
-        else
-            echo "::error::SUSFS patch folder not found at $SUSFS_FOLDER/kernel_patches"
-            exit 1
-        fi
+        cp "$SUSFS_FOLDER/kernel_patches/fs/"* "$COMMON_KERNEL_FOLDER/fs/"
+        cp "$SUSFS_FOLDER/kernel_patches/include/linux/"* "$COMMON_KERNEL_FOLDER/include/linux/"
         
-        # Robust Copying
-        if [ -d "$SUSFS_FOLDER/kernel_patches/fs" ]; then
-            echo "Copying fs patches..."
-            cp -v -r "$SUSFS_FOLDER/kernel_patches/fs/." "$COMMON_KERNEL_FOLDER/fs/" || echo "Warning: Copy fs failed or no files"
-        else
-             echo "Warning: No fs patches folder found in SUSFS"
-        fi
-
-        if [ -d "$SUSFS_FOLDER/kernel_patches/include/linux" ]; then
-            echo "Copying include patches..."
-            cp -v -r "$SUSFS_FOLDER/kernel_patches/include/linux/." "$COMMON_KERNEL_FOLDER/include/linux/" || echo "Warning: Copy include failed or no files"
-        else
-             echo "Warning: No include patches folder found in SUSFS"
-        fi
-        
-        SUSFS_HEADER="$COMMON_KERNEL_FOLDER/include/linux/susfs.h"
-        if [ -f "$SUSFS_HEADER" ]; then
-            susfs_version=$(grep '#define SUSFS_VERSION' "$SUSFS_HEADER" | awk -F'"' '{print $2}' || true)
-        else
-            echo "::error::susfs.h not found at $SUSFS_HEADER"
-            ls -l "$COMMON_KERNEL_FOLDER/include/linux/" | grep susfs || true
-            exit 1
-        fi
-        
-        if [ -z "$susfs_version" ]; then
-            echo "::error::Could not extract SUSFS_VERSION from $SUSFS_HEADER"
-            cat "$SUSFS_HEADER"
-            exit 1
-        fi
-
+        susfs_version=$(grep '#define SUSFS_VERSION' "$COMMON_KERNEL_FOLDER/include/linux/susfs.h" | awk -F'"' '{print $2}')
         echo "SUSVER=$susfs_version" >> $GITHUB_ENV
         echo "$susfs_version" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "SusFS Version: $susfs_version"
@@ -865,57 +831,28 @@ runs:
           echo "NEED_HOOKS=false" >> $GITHUB_ENV
         fi
         
-        case "$susfs_version" in
-          "v1.5.8")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+        if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
+          patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+          case "$susfs_version" in
+            "v1.5.8")
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch"
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_core_hook.c.patch"
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_selinux.c.patch"
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch"
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-            fi
-            ;;
-          "v1.5.9"|"v1.5.10"|"v1.5.11"|"v1.5.12")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
+              ;;
+            "v1.5.9"|"v1.5.10"|"v1.5.11"|"v1.5.12")
               cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" | cut -d'.' -f1); do
                 echo "Patching file: $file.c with fix_$file.c.patch"
                 patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch"
               done
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-            fi
-            ;;
-          "v2.0.0")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
-                echo "Patching file: $file with fix_$file.patch"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
-              done
-              echo "Patching Hook Mode!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
-              echo "Patching Multi-manager Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch"
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-            fi
-            ;;
-          *)
-            echo "::error::Unsupported SUSFS version: $susfs_version"
-            exit 1
-            ;;
-        esac
+              ;;
+          esac
+        else
+          cd "$KSU_FOLDER"
+          patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+        fi
         
         cd "$COMMON_KERNEL_FOLDER"
         if [ "${{ env.ANDROID_VER }}" = "android15" ] && [ "${{ env.KERNEL_VER }}" = "6.6" ]; then
