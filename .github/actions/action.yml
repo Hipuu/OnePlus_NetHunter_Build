@@ -727,6 +727,30 @@ runs:
         sed -i 's/protected_modules = \[.*\]/protected_modules = []/' common/modules.bzl || true
         df -h
 
+    - name: Fix Clang 18+ Compatibility
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Fix Clang compatibility"
+        cd "$COMMON_KERNEL_FOLDER"
+        
+        # Fix stack_pointer.h error: register 'sp' unsuitable for global register variables
+        # Replace global register var with inline asm to get SP
+        SP_H="arch/arm64/include/asm/stack_pointer.h"
+        if [ -f "$SP_H" ]; then
+            echo "Patching $SP_H..."
+            sed -i 's/register unsigned long current_stack_pointer asm ("sp");/#define current_stack_pointer ({ unsigned long sp; asm ("mov %0, sp" : "=r" (sp)); sp; })/' "$SP_H" || true
+        fi
+        
+        # Fix kgdb.h error: value '1025' out of range for constraint 'I'
+        # Change constraint "I" to "i" (any immediate)
+        KGDB_H="arch/arm64/include/asm/kgdb.h"
+        if [ -f "$KGDB_H" ]; then
+            echo "Patching $KGDB_H..."
+            sed -i 's/asm ("brk %0" : : "I"/asm ("brk %0" : : "i"/' "$KGDB_H" || true
+        fi
+        echo "::endgroup::"
+
     - name: Add KernelSU Next
       shell: bash
       if: ${{ inputs.ksu_type == 'KSUN' }}
