@@ -370,8 +370,12 @@ runs:
         INSTALL_MOD_PATH="$COMMON_KERNEL_DIR/out"
         
         echo "Building kernel modules..."
+        echo "=== DEBUG: gki_defconfig content ==="
+        cat arch/arm64/configs/gki_defconfig
+        echo "===================================="
+        
         make ARCH=arm64 LLVM=1 O=out gki_defconfig   
-        make -j$(nproc --all) ARCH=arm64 LLVM=1 O=out CC="ccache clang" modules       
+        make V=1 -j$(nproc --all) ARCH=arm64 LLVM=1 O=out CC="ccache clang" modules       
         make -j$(nproc --all) ARCH=arm64 LLVM=1 O=out INSTALL_MOD_PATH=$INSTALL_MOD_PATH modules_install
         
     - name: Filter modules
