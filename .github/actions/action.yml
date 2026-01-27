@@ -411,32 +411,52 @@ runs:
         echo "::group::Detect Clang"
         CLANG_FOUND=false
         RUSTC_FOUND=false
+        
+        # Check standard locations
         for base in "$KERNEL_PLATFORM_FOLDER/prebuilts" "$KERNEL_PLATFORM_FOLDER/prebuilts-master"; do
-          [ -d "$base/clang/host/linux-x86" ] || continue
-          latest=$(ls -d "$base"/clang/host/linux-x86/clang-r*/ 2>/dev/null | sort -V | tail -n1 || true)
-          if [ -n "$latest" ] && [ -x "$latest/bin/clang" ]; then
-            CLANG_BIN="$latest/bin"
-            CLANG_FOUND=true
-            break
+          if [ -d "$base/clang/host/linux-x86" ]; then
+             latest=$(ls -d "$base"/clang/host/linux-x86/clang-r*/ 2>/dev/null | sort -V | tail -n1 || true)
+             if [ -n "$latest" ] && [ -x "$latest/bin/clang" ]; then
+               CLANG_BIN="$latest/bin"
+               CLANG_FOUND=true
+             fi
+          fi
+          
+          if [ -d "$base/rust/linux-x86/" ]; then
+             # Changed head -n1 to tail -n1 to pick latest version
+             latest=$(ls -d "$base/rust/linux-x86/"* 2>/dev/null | grep -E '/[0-9]+\.[0-9]+' | sort -V | tail -n1 || true)
+             if [ -n "$latest" ] && [ -x "$latest/bin/rustc" ]; then
+               RUSTC_BIN="$latest/bin"
+               RUSTC_FOUND=true
+             fi
           fi
         done
-        for base in "$KERNEL_PLATFORM_FOLDER/prebuilts" "$KERNEL_PLATFORM_FOLDER/prebuilts-master"; do
-          [ -d "$base/rust/linux-x86/" ] || continue
-          ls -la "$base/rust/linux-x86/"
-          latest=$(ls -d "$base/rust/linux-x86/1."* 2>/dev/null | sort -V | head -n1 || true)
-          if [ -n "$latest" ] && [ -x "$latest/bin/rustc" ]; then
-            RUSTC_BIN="$latest/bin"
-            RUSTC_FOUND=true
-            break
-          fi
-        done
+        
+        # Fallback: System Clang
         if ! $CLANG_FOUND && command -v clang >/dev/null 2>&1; then
           CLANG_BIN="$(dirname "$(command -v clang)")"
           CLANG_FOUND=true
           echo "Using system clang."
         fi
+        
+        # Fallback: Search for rustc if not found
+        if ! $RUSTC_FOUND; then
+            echo "⚠️ Standard Rust detection failed. Searching recursively..."
+            RUSTC_PATH=$(find "$KERNEL_PLATFORM_FOLDER" -name rustc -type f -executable | grep "linux-x86" | head -n1 || true)
+            if [ -n "$RUSTC_PATH" ]; then
+                RUSTC_BIN="$(dirname "$RUSTC_PATH")"
+                RUSTC_FOUND=true
+                echo "✅ Found Rust via search at: $RUSTC_BIN"
+            else
+                echo "❌ No rustc binary found in $KERNEL_PLATFORM_FOLDER"
+                echo "Listing prebuilts structure:"
+                ls -R "$KERNEL_PLATFORM_FOLDER/prebuilts" 2>/dev/null || echo "No prebuilts folder"
+            fi
+        fi
+
         $CLANG_FOUND || { echo "::error::No clang toolchain found"; exit 1; }
         $RUSTC_FOUND || { echo "::warning::No RUST toolchain found! Ignoring";}
+        
         echo "CLANG_BIN_PATH=$CLANG_BIN" >> "$GITHUB_ENV"
         if [ "$RUSTC_FOUND" = true ]; then
           echo "RUSTC_BIN_PATH=$RUSTC_BIN" >> "$GITHUB_ENV"
