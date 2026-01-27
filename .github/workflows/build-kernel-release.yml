@@ -313,8 +313,7 @@ jobs:
           # If empty, it will be auto-resolved to gki-* branch in the action
           if [ -z "$susfs_branch" ]; then
             echo "ℹ️  No custom SUSFS branch specified for $key"
-            echo "   Will auto-select: master"
-            susfs_branch="master"
+            echo "   Letting action auto-detect branch..."
           else
             echo "✅ Using custom SUSFS branch for $key: '$susfs_branch'"
           fi
