@@ -376,32 +376,27 @@ runs:
     - name: Build Kernel Modules 
       shell: bash
       run: |
-        set -euo pipefail
-        
-        cd "$COMMON_KERNEL_DIR"
-        
         export PATH="${CLANG_BIN_PATH}:$PATH" 
         export PATH="/usr/lib/ccache:$PATH"
+        
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CLANG_TRIPLE=aarch64-linux-gnu-
+        export CC="ccache clang"
+        export CXX="ccache clang++"
+        export LD=ld.lld
+        export AR=llvm-ar
+        export NM=llvm-nm
+        export OBJCOPY=llvm-objcopy
+        export OBJDUMP=llvm-objdump
+        export STRIP=llvm-strip
+        export READELF=llvm-readelf
         
         echo "=== Compiler Version ==="
         clang --version
         echo "========================"
-        set -euo pipefail
         
-        cd "$COMMON_KERNEL_DIR"
-        
-        export PATH="${CLANG_BIN_PATH}:$PATH" 
-        export PATH="/usr/lib/ccache:$PATH"
-        
-        if [ -n "${RUSTC_BIN_PATH:-}" ]; then
-          export PATH="${RUSTC_BIN_PATH}:${PATH}"
-          export RUSTC="$RUSTC_BIN_PATH/rustc"
-          if [ "${{ env.OP_RUST_BUILD}}" = "true" ]; then
-            export LIBCLANG_PATH="$CLANG_BIN_PATH/../lib"
-            export BINDGEN="bindgen"
-          fi
-        fi
-
         VENDOR_CONFIG="$VENDOR_KERNEL_DIR/arch/arm64/configs/vendor/${OP_SOC}_GKI.config"
         FALLBACK_CONFIG="$VENDOR_KERNEL_DIR/arch/arm64/configs/vendor/pineapple_GKI.config"
         
@@ -432,9 +427,9 @@ runs:
         cat arch/arm64/configs/gki_defconfig
         echo "===================================="
         
-        make ARCH=arm64 LLVM=1 O=out gki_defconfig   
-        make V=1 -j$(nproc --all) ARCH=arm64 LLVM=1 O=out CC="ccache clang" modules       
-        make -j$(nproc --all) ARCH=arm64 LLVM=1 O=out INSTALL_MOD_PATH=$INSTALL_MOD_PATH modules_install
+        make LLVM=1 LLVM_IAS=1 O=out gki_defconfig   
+        make V=1 -j$(nproc --all) LLVM=1 LLVM_IAS=1 O=out modules       
+        make -j$(nproc --all) LLVM=1 LLVM_IAS=1 O=out INSTALL_MOD_PATH=$INSTALL_MOD_PATH modules_install
         
     - name: Filter modules
       shell: bash
