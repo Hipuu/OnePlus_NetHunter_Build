@@ -395,6 +395,7 @@ runs:
     - name: Build Kernel Modules 
       shell: bash
       run: |
+        cd "$COMMON_KERNEL_DIR"
         export PATH="${CLANG_BIN_PATH}:$PATH" 
         export PATH="/usr/lib/ccache:$PATH"
         
