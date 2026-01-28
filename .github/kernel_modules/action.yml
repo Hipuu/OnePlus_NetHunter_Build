@@ -393,6 +393,11 @@ runs:
         export STRIP=llvm-strip
         export READELF=llvm-readelf
         
+        # Try to find prebuilt pahole, otherwise let build system find it or fail gracefully
+        if [ -f "$KP/prebuilts/kernel-build-tools/linux-x86/bin/pahole" ]; then
+            export PAHOLE="$KP/prebuilts/kernel-build-tools/linux-x86/bin/pahole"
+        fi
+        
         echo "=== Compiler Version ==="
         clang --version
         echo "========================"
@@ -414,6 +419,10 @@ runs:
         echo "CONFIG_LTO_CLANG=y" >> ./arch/arm64/configs/gki_defconfig
         echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> "./arch/arm64/configs/gki_defconfig"
         echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=n" >> "./arch/arm64/configs/gki_defconfig"
+        
+        # Disable BTF to prevent 'load BTF from vmlinux: Invalid argument' errors
+        echo "CONFIG_DEBUG_INFO_BTF=n" >> "./arch/arm64/configs/gki_defconfig"
+        echo "CONFIG_DEBUG_INFO_BTF_MODULES=n" >> "./arch/arm64/configs/gki_defconfig"
         
         if [ "${{ env.OP_RUST_BUILD}}" = "true" ]; then
            echo "CONFIG_ANDROID_BINDER_IPC_RUST=m" >> "./arch/arm64/configs/gki_defconfig"
