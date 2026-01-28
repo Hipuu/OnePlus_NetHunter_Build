@@ -1,0 +1,99 @@
+name: Debug Kernel Modules Build
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      devices:
+        description: 'JSON list of devices to build (e.g. ["OP11r", "OP-ACE-2"])'
+        required: true
+        default: '["OP11r", "OP-ACE-2", "OP10r", "OP-ACE-6T", "OP15r"]'
+      optimize_level:
+        description: "Compiler optimization level"
+        required: true
+        type: choice
+        options: [O2, O3]
+        default: O2
+
+jobs:
+  set-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            configs/
+          sparse-checkout-cone-mode: false
+
+      - name: 🔍 Generate debug matrix
+        id: set-matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          # Get list of target models from input
+          TARGETS='${{ inputs.devices }}'
+          
+          echo "Targets: $TARGETS"
+          
+          echo "[" > matrix.json
+          mapfile -t all_json_files < <(find configs/ -name "*.json" -print0 | xargs -0 -n1)
+          
+          first=true
+          
+          for file in "${all_json_files[@]}"; do
+            # Extract model from filename or json content
+            # Assuming filename matches model or we check content
+            if [ -f "$file" ]; then
+               MODEL=$(jq -r '.model' "$file")
+               
+               # Check if this model is in our target list
+               if echo "$TARGETS" | jq -e "contains([\"$MODEL\"])" > /dev/null; then
+                 if [ "$first" = true ]; then
+                   first=false
+                 else
+                   echo "," >> matrix.json
+                 fi
+                 jq -c '.' "$file" >> matrix.json
+               fi
+            fi
+          done
+          echo "]" >> matrix.json
+          
+          echo "Debug Matrix:"
+          cat matrix.json
+          
+          # Wrap in 'include' for GitHub Actions matrix
+          echo "matrix=$(jq -c '{include: .}' matrix.json)" >> "$GITHUB_OUTPUT"
+
+  build-modules:
+    name: Build Modules (${{ matrix.model }})
+    needs: set-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.set-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      
+      - name: 🧹 Prepare op_config_json
+        id: prepare_config
+        shell: bash
+        run: |
+          echo "config_json=$(jq -nc --argjson m '${{ toJSON(matrix) }}' '$m')" >> "$GITHUB_OUTPUT"
+
+      - name: Build Kernel Modules
+        uses: ./.github/kernel_modules
+        with:
+          op_config_json: ${{ steps.prepare_config.outputs.config_json }}
+          manifest: ${{ matrix.manifest }}
+          optimize_level: ${{ inputs.optimize_level }}
