@@ -413,6 +413,8 @@ runs:
            cat "$FALLBACK_CONFIG" >> ./arch/arm64/configs/gki_defconfig
         else
            echo "Warning: No vendor GKI config found!"
+           echo "Listing available configs in $VENDOR_KERNEL_DIR/arch/arm64/configs:"
+           ls -R "$VENDOR_KERNEL_DIR/arch/arm64/configs" || echo "Configs dir not found"
         fi
 
         echo "CONFIG_LTO_CLANG_THIN=y" >> ./arch/arm64/configs/gki_defconfig                                                                            
