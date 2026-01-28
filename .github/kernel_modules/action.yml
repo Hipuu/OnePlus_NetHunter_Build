@@ -392,15 +392,6 @@ runs:
         fi
         echo "::endgroup::"
 
-    - name: Disable GPUEB
-      shell: bash
-      if: ${{ env.KERNEL_VER == '5.10' && (startsWith(env.OP_SOC, 'dimensity') || startsWith(env.OP_SOC, 'helio')) }}
-      run: |
-        set -euo pipefail
-        echo "Disabling GPUEB for MTK kernel 5.10"
-        sed -i '/obj-.*gpueb/d' "$COMMON_KERNEL_FOLDER/drivers/gpu/mediatek/Makefile" || true
-        echo "CONFIG_MTK_GPUEB=n" >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
-
     - name: Build Kernel Modules 
       shell: bash
       run: |
