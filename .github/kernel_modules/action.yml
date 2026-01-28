@@ -433,7 +433,7 @@ runs:
         
         echo "Building kernel modules..."
         echo "=== DEBUG: gki_defconfig content ==="
-        cat arch/arm64/configs/gki_defconfig
+        cat arch/arm64/configs/gki_defconfig || echo "gki_defconfig not found"
         echo "===================================="
         
         make LLVM=1 LLVM_IAS=1 O=out gki_defconfig   
