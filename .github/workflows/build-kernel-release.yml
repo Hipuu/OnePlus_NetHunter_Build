@@ -789,6 +789,14 @@ jobs:
           - **Bluetooth** - HCI USB support
           - **Ethernet** - USB Ethernet adapter support
           
+          ### 🐉 Kali NetHunter
+          - **HID Gadget** - HID keyboard/mouse attacks
+          - **DriveDroid** - USB Mass Storage emulation
+          - **Wireless Injection** - 802.11 frame injection support
+          - **SDR Support** - RTL-SDR, HackRF, AirSpy, etc.
+          - **Bluetooth** - HCI USB support
+          - **Ethernet** - USB Ethernet adapter support
+          
           ### 🚀 Performance & Networking
           - **BBR** - Improved TCP congestion control
           - **Wireguard** - Built-in VPN support
