@@ -451,6 +451,12 @@ runs:
            echo "CONFIG_RUST=y" >> "./arch/arm64/configs/gki_defconfig"
         fi
 
+        if [[ "${OP_SOC}" == *"dimensity"* ]] || [[ "${OP_SOC}" == *"helio"* ]]; then
+           echo "Enabling MTK MBOX and IPI for gpueb dependencies"
+           echo "CONFIG_MTK_MBOX=y" >> ./arch/arm64/configs/gki_defconfig
+           echo "CONFIG_MTK_IPI=y" >> ./arch/arm64/configs/gki_defconfig
+        fi
+
         INSTALL_MOD_PATH="$COMMON_KERNEL_DIR/out"
         
         echo "Building kernel modules..."
