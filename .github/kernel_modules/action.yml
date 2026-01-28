@@ -304,6 +304,18 @@ runs:
           fi
         done
         
+        # Fallback: Download AOSP Clang if not found
+        if ! $CLANG_FOUND; then
+           echo "⬇️ Prebuilt Clang not found. Downloading AOSP Clang r487747c..."
+           mkdir -p "$KP/prebuilts/clang/host/linux-x86/clang-r487747c"
+           cd "$KP/prebuilts/clang/host/linux-x86/clang-r487747c"
+           curl -L -k https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r487747c.tar.gz -o clang.tar.gz
+           tar -xzf clang.tar.gz
+           rm clang.tar.gz
+           CLANG_BIN="$PWD/bin"
+           CLANG_FOUND=true
+        fi
+        
         if ! $CLANG_FOUND && command -v clang >/dev/null 2>&1; then
           CLANG_BIN="$(dirname "$(command -v clang)")"
           CLANG_FOUND=true
