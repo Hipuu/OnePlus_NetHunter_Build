@@ -303,6 +303,23 @@ runs:
         done
         $success || { echo "::error::repo sync failed after 3 attempts"; exit 1; }
         echo "✅ Kernel source synced"
+        
+        echo "::group::Verify Kernel Source"
+        # Check for gki_defconfig to ensure sync was successful
+        GKI_PATH="kernel_platform/common/arch/arm64/configs/gki_defconfig"
+        if [ -f "common/arch/arm64/configs/gki_defconfig" ]; then
+             GKI_PATH="common/arch/arm64/configs/gki_defconfig"
+        elif [ -f "arch/arm64/configs/gki_defconfig" ]; then
+             GKI_PATH="arch/arm64/configs/gki_defconfig"
+        fi
+        
+        if [ ! -f "$GKI_PATH" ]; then
+             echo "::error::gki_defconfig not found at $GKI_PATH"
+             echo "Listing current directory structure:"
+             ls -R . | head -n 50
+             exit 1
+        fi
+        echo "✅ Kernel source verified at $GKI_PATH"
         echo "::endgroup::"
 
     - name: Set Dir Paths
