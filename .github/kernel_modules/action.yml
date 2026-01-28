@@ -344,26 +344,48 @@ runs:
         echo "::group::Fix Clang compatibility"
         cd "$COMMON_KERNEL_DIR"
         
-        # Fix stack_pointer.h error: register 'sp' unsuitable for global register variables
-        # Replace global register var with inline asm to get SP
+        # Fix stack_pointer.h
         SP_H="arch/arm64/include/asm/stack_pointer.h"
         if [ -f "$SP_H" ]; then
-            echo "Patching $SP_H..."
+            echo "--- Before Patching $SP_H ---"
+            grep "current_stack_pointer" "$SP_H" || echo "Pattern not found"
+            
             sed -i 's/register unsigned long current_stack_pointer asm ("sp");/#define current_stack_pointer ({ unsigned long sp; asm ("mov %0, sp" : "=r" (sp)); sp; })/' "$SP_H" || true
+            
+            echo "--- After Patching $SP_H ---"
+            grep "current_stack_pointer" "$SP_H" || echo "Pattern not found"
+        else
+            echo "Warning: $SP_H not found"
         fi
         
-        # Fix kgdb.h error: value '1025' out of range for constraint 'I'
-        # Change constraint "I" to "i" (any immediate)
+        # Fix kgdb.h
         KGDB_H="arch/arm64/include/asm/kgdb.h"
         if [ -f "$KGDB_H" ]; then
-            echo "Patching $KGDB_H..."
+            echo "--- Before Patching $KGDB_H ---"
+            grep "asm.*brk" "$KGDB_H" || echo "Pattern not found"
+            
             sed -i 's/asm ("brk %0" : : "I"/asm ("brk %0" : : "i"/' "$KGDB_H" || true
+            
+            echo "--- After Patching $KGDB_H ---"
+            grep "asm.*brk" "$KGDB_H" || echo "Pattern not found"
+        else
+             echo "Warning: $KGDB_H not found"
         fi
         echo "::endgroup::"
 
     - name: Build Kernel Modules 
       shell: bash
       run: |
+        set -euo pipefail
+        
+        cd "$COMMON_KERNEL_DIR"
+        
+        export PATH="${CLANG_BIN_PATH}:$PATH" 
+        export PATH="/usr/lib/ccache:$PATH"
+        
+        echo "=== Compiler Version ==="
+        clang --version
+        echo "========================"
         set -euo pipefail
         
         cd "$COMMON_KERNEL_DIR"
