@@ -303,23 +303,6 @@ runs:
         done
         $success || { echo "::error::repo sync failed after 3 attempts"; exit 1; }
         echo "✅ Kernel source synced"
-        
-        echo "::group::Verify Kernel Source"
-        # Check for gki_defconfig to ensure sync was successful
-        GKI_PATH="kernel_platform/common/arch/arm64/configs/gki_defconfig"
-        if [ -f "common/arch/arm64/configs/gki_defconfig" ]; then
-             GKI_PATH="common/arch/arm64/configs/gki_defconfig"
-        elif [ -f "arch/arm64/configs/gki_defconfig" ]; then
-             GKI_PATH="arch/arm64/configs/gki_defconfig"
-        fi
-        
-        if [ ! -f "$GKI_PATH" ]; then
-             echo "::error::gki_defconfig not found at $GKI_PATH"
-             echo "Listing current directory structure:"
-             ls -R . | head -n 50
-             exit 1
-        fi
-        echo "✅ Kernel source verified at $GKI_PATH"
         echo "::endgroup::"
 
     - name: Set Dir Paths
@@ -428,64 +411,32 @@ runs:
         echo "::group::Detect Clang"
         CLANG_FOUND=false
         RUSTC_FOUND=false
-        
-        # Check standard locations
         for base in "$KERNEL_PLATFORM_FOLDER/prebuilts" "$KERNEL_PLATFORM_FOLDER/prebuilts-master"; do
-          if [ -d "$base/clang/host/linux-x86" ]; then
-             latest=$(ls -d "$base"/clang/host/linux-x86/clang-r*/ 2>/dev/null | sort -V | tail -n1 || true)
-             if [ -n "$latest" ] && [ -x "$latest/bin/clang" ]; then
-               CLANG_BIN="$latest/bin"
-               CLANG_FOUND=true
-             fi
-          fi
-          
-          if [ -d "$base/rust/linux-x86/" ]; then
-             # Changed head -n1 to tail -n1 to pick latest version
-             latest=$(ls -d "$base/rust/linux-x86/"* 2>/dev/null | grep -E '/[0-9]+\.[0-9]+' | sort -V | tail -n1 || true)
-             if [ -n "$latest" ] && [ -x "$latest/bin/rustc" ]; then
-               RUSTC_BIN="$latest/bin"
-               RUSTC_FOUND=true
-             fi
+          [ -d "$base/clang/host/linux-x86" ] || continue
+          latest=$(ls -d "$base"/clang/host/linux-x86/clang-r*/ 2>/dev/null | sort -V | tail -n1 || true)
+          if [ -n "$latest" ] && [ -x "$latest/bin/clang" ]; then
+            CLANG_BIN="$latest/bin"
+            CLANG_FOUND=true
+            break
           fi
         done
-        
-        # Fallback: Download AOSP Clang if not found
-        if ! $CLANG_FOUND; then
-           echo "⬇️ Prebuilt Clang not found. Downloading AOSP Clang r487747c..."
-           mkdir -p "$KERNEL_PLATFORM_FOLDER/prebuilts/clang/host/linux-x86/clang-r487747c"
-           cd "$KERNEL_PLATFORM_FOLDER/prebuilts/clang/host/linux-x86/clang-r487747c"
-           curl -L -k https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r487747c.tar.gz -o clang.tar.gz
-           tar -xzf clang.tar.gz
-           rm clang.tar.gz
-           CLANG_BIN="$PWD/bin"
-           CLANG_FOUND=true
-        fi
-
-        # Fallback: System Clang (Last Resort)
+        for base in "$KERNEL_PLATFORM_FOLDER/prebuilts" "$KERNEL_PLATFORM_FOLDER/prebuilts-master"; do
+          [ -d "$base/rust/linux-x86/" ] || continue
+          ls -la "$base/rust/linux-x86/"
+          latest=$(ls -d "$base/rust/linux-x86/1."* 2>/dev/null | sort -V | head -n1 || true)
+          if [ -n "$latest" ] && [ -x "$latest/bin/rustc" ]; then
+            RUSTC_BIN="$latest/bin"
+            RUSTC_FOUND=true
+            break
+          fi
+        done
         if ! $CLANG_FOUND && command -v clang >/dev/null 2>&1; then
           CLANG_BIN="$(dirname "$(command -v clang)")"
           CLANG_FOUND=true
           echo "Using system clang."
         fi
-        
-        # Fallback: Search for rustc if not found
-        if ! $RUSTC_FOUND; then
-            echo "⚠️ Standard Rust detection failed. Searching recursively..."
-            RUSTC_PATH=$(find "$KERNEL_PLATFORM_FOLDER" -name rustc -type f -executable | grep "linux-x86" | head -n1 || true)
-            if [ -n "$RUSTC_PATH" ]; then
-                RUSTC_BIN="$(dirname "$RUSTC_PATH")"
-                RUSTC_FOUND=true
-                echo "✅ Found Rust via search at: $RUSTC_BIN"
-            else
-                echo "❌ No rustc binary found in $KERNEL_PLATFORM_FOLDER"
-                echo "Listing prebuilts structure:"
-                ls -R "$KERNEL_PLATFORM_FOLDER/prebuilts" 2>/dev/null || echo "No prebuilts folder"
-            fi
-        fi
-
         $CLANG_FOUND || { echo "::error::No clang toolchain found"; exit 1; }
         $RUSTC_FOUND || { echo "::warning::No RUST toolchain found! Ignoring";}
-        
         echo "CLANG_BIN_PATH=$CLANG_BIN" >> "$GITHUB_ENV"
         if [ "$RUSTC_FOUND" = true ]; then
           echo "RUSTC_BIN_PATH=$RUSTC_BIN" >> "$GITHUB_ENV"
@@ -631,7 +582,7 @@ runs:
     - name: Clone AnyKernel3 and Other Dependencies
       shell: bash
       run: |
-        set -euox pipefail
+        set -euo pipefail
         echo "::group::Clone dependencies"
         echo "Cloning AnyKernel3 and other dependencies..."
         
@@ -647,16 +598,11 @@ runs:
             ["android13-5.15"]="gki-android13-5.15"
             ["android14-6.1"]="gki-android14-6.1-dev"
             ["android15-6.6"]="gki-android15-6.6"
-            ["android15-6.12"]="gki-android16-6.12"
             ["android16-6.12"]="gki-android16-6.12"
           )
           
           # Determine which SUSFS branch to use
           KERNEL_KEY="${{ env.ANDROID_VER }}-${{ env.KERNEL_VER }}"
-          
-          echo "DEBUG: SUSFS_INPUT='$SUSFS_INPUT'"
-          echo "DEBUG: KERNEL_KEY='$KERNEL_KEY'"
-          
           if [ -z "$SUSFS_INPUT" ] || [ "$SUSFS_INPUT" = "next" ]; then
             # Empty or "next": use kernel-specific default
             SUSFS_BRANCH="${DEFAULT_SUSFS[$KERNEL_KEY]:-gki-android15-6.6}"
@@ -756,30 +702,6 @@ runs:
         sed -i 's/protected_modules = \[.*\]/protected_modules = []/' common/modules.bzl || true
         df -h
 
-    - name: Fix Clang 18+ Compatibility
-      shell: bash
-      run: |
-        set -euo pipefail
-        echo "::group::Fix Clang compatibility"
-        cd "$COMMON_KERNEL_FOLDER"
-        
-        # Fix stack_pointer.h error: register 'sp' unsuitable for global register variables
-        # Replace global register var with inline asm to get SP
-        SP_H="arch/arm64/include/asm/stack_pointer.h"
-        if [ -f "$SP_H" ]; then
-            echo "Patching $SP_H..."
-            sed -i 's/register unsigned long current_stack_pointer asm ("sp");/#define current_stack_pointer ({ unsigned long sp; asm ("mov %0, sp" : "=r" (sp)); sp; })/' "$SP_H" || true
-        fi
-        
-        # Fix kgdb.h error: value '1025' out of range for constraint 'I'
-        # Change constraint "I" to "i" (any immediate)
-        KGDB_H="arch/arm64/include/asm/kgdb.h"
-        if [ -f "$KGDB_H" ]; then
-            echo "Patching $KGDB_H..."
-            sed -i 's/asm ("brk %0" : : "I"/asm ("brk %0" : : "i"/' "$KGDB_H" || true
-        fi
-        echo "::endgroup::"
-
     - name: Add KernelSU Next
       shell: bash
       if: ${{ inputs.ksu_type == 'KSUN' }}
@@ -864,7 +786,6 @@ runs:
         echo "::group::Apply SUSFS patches"
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Applying SUSFS patches..."
-        
         cp "$SUSFS_FOLDER/kernel_patches/fs/"* "$COMMON_KERNEL_FOLDER/fs/"
         cp "$SUSFS_FOLDER/kernel_patches/include/linux/"* "$COMMON_KERNEL_FOLDER/include/linux/"
         
@@ -884,70 +805,57 @@ runs:
           echo "NEED_HOOKS=false" >> $GITHUB_ENV
         fi
         
-        if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-          cd "$KSUN_FOLDER"
-          patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-
-          # Generic approach: Find and patch any ksu.c found in the kernel platform directory
-          echo "DEBUG: Searching for ksu.c to patch..."
-          find -L "$KERNEL_PLATFORM_FOLDER" -name "ksu.c" -type f -print0 | while IFS= read -r -d '' file; do
-              echo "Checking $file for SUSFS header..."
-              if ! grep -q "#include <linux/susfs.h>" "$file"; then
-                  echo "⚠️ Header missing in $file, adding it..."
-                  sed -i '/#include <linux\/version.h>/a #include <linux/susfs.h>' "$file" || sed -i '1i #include <linux/susfs.h>' "$file"
-              else
-                  echo "✅ Header already present in $file"
-              fi
-          done
-
-          # Debug: Verify the file content
-          DRIVER_KSU="$COMMON_KERNEL_FOLDER/drivers/kernelsu/ksu.c"
-          if [ -f "$DRIVER_KSU" ]; then
-             echo "Content of $DRIVER_KSU (first 20 lines):"
-             head -n 20 "$DRIVER_KSU"
-          else
-             echo "⚠️ $DRIVER_KSU not found!"
-          fi
-
-          case "$susfs_version" in
-            "v1.5.8")
+        case "$susfs_version" in
+          "v1.5.8")
+            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
+              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch"
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_core_hook.c.patch"
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_selinux.c.patch"
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch"
-              ;;
-            "v1.5.9"|"v1.5.10"|"v1.5.11"|"v1.5.12")
+            else
+              cd "$KSU_FOLDER"
+              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+            fi
+            ;;
+          "v1.5.9"|"v1.5.10"|"v1.5.11"|"v1.5.12")
+            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
               cd "$KSUN_FOLDER"
+              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" | cut -d'.' -f1); do
                 echo "Patching file: $file.c with fix_$file.c.patch"
                 patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch"
               done
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
-              ;;
-            "v2.0.0")
+            else
+              cd "$KSU_FOLDER"
+              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+            fi
+            ;;
+          "v2.0.0")
+            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
               cd "$KSUN_FOLDER"
+              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
               for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
                 echo "Patching file: $file with fix_$file.patch"
                 patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
               done
               echo "Patching Hook Mode!"
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              echo "Patching KSU_TOOLKIT Support for SuSFS kernel!"
+              echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
-              ;;
-            *)
-              echo "::error::Unsupported SUSFS version: $susfs_version"
-              exit 1
-              ;;
-          esac
-
-          if [ -f "$KSUN_FOLDER/ksun_susfs_latest.patch" ]; then
-            patch -p1 --forward < "$KSUN_FOLDER/ksun_susfs_latest.patch"
-          fi
-        else
-          cd "$KSU_FOLDER"
-          patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-        fi
+              echo "Patching Multi-manager Support for SusFS kernel!"
+              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch"
+            else
+              cd "$KSU_FOLDER"
+              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+            fi
+            ;;
+          *)
+            echo "::error::Unsupported SUSFS version: $susfs_version"
+            exit 1
+            ;;
+        esac
         
         cd "$COMMON_KERNEL_FOLDER"
         if [ "${{ env.ANDROID_VER }}" = "android15" ] && [ "${{ env.KERNEL_VER }}" = "6.6" ]; then
@@ -1013,11 +921,6 @@ runs:
               sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
             fi
           fi
-        fi
-        if find "$KERNEL_PLATFORM_FOLDER" -maxdepth 6 -name "*.rej" | head -n1 | grep -q .; then
-          echo "::error::SUSFS patching produced .rej files"
-          find "$KERNEL_PLATFORM_FOLDER" -maxdepth 6 -name "*.rej" -print
-          exit 1
         fi
         echo "✅ SUSFS patches applied"
         echo "::endgroup::"
@@ -1150,33 +1053,23 @@ runs:
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_KSU=y
         CONFIG_KSU_KPROBES_HOOK=n
-        EOF
-        
-        if [ "$OP_SUSFS" = "true" ]; then
-          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
-          CONFIG_KSU_SUSFS_SUS_SU=n
-          EOF
-        else
-          echo "::warning::SUSFS disabled (OP_SUSFS=false)"
-        fi
-        
-        cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
+        CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+        CONFIG_KSU_SUSFS_SUS_PATH=y
+        CONFIG_KSU_SUSFS_SUS_MOUNT=y
+        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+        CONFIG_KSU_SUSFS_SUS_KSTAT=y
+        CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+        CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+        CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+        CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+        CONFIG_KSU_SUSFS_ENABLE_LOG=y
+        CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+        CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+        CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+        CONFIG_KSU_SUSFS_SUS_MAP=y
+        CONFIG_KSU_SUSFS_SUS_SU=n
         CONFIG_TMPFS_XATTR=y
         CONFIG_TMPFS_POSIX_ACL=y
         EOF
