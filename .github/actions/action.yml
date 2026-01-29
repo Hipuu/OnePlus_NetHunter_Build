@@ -885,6 +885,7 @@ runs:
         fi
         
         if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
+          cd "$KSUN_FOLDER"
           patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
           case "$susfs_version" in
             "v1.5.8")
