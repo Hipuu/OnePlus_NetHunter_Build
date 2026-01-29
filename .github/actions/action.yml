@@ -892,6 +892,17 @@ runs:
              echo "⚠️ Header missing in ksu.c, adding it..."
              sed -i '/#include <linux\/version.h>/a #include <linux/susfs.h>' kernel/ksu.c || sed -i '1i #include <linux/susfs.h>' kernel/ksu.c
           fi
+          
+          # Also check drivers/kernelsu/ksu.c in the common kernel folder
+          KSU_C_PATH="$COMMON_KERNEL_FOLDER/drivers/kernelsu/ksu.c"
+          if [ -f "$KSU_C_PATH" ]; then
+             echo "Checking $KSU_C_PATH for SUSFS header..."
+             if ! grep -q "#include <linux/susfs.h>" "$KSU_C_PATH"; then
+                echo "⚠️ Header missing in drivers/kernelsu/ksu.c, adding it..."
+                sed -i '/#include <linux\/version.h>/a #include <linux/susfs.h>' "$KSU_C_PATH" || sed -i '1i #include <linux/susfs.h>' "$KSU_C_PATH"
+             fi
+          fi
+
           case "$susfs_version" in
             "v1.5.8")
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch"
