@@ -860,7 +860,7 @@ runs:
       shell: bash
       if: ${{ env.OP_SUSFS == 'true' }}
       run: |
-        set -euox pipefail
+        set -euo pipefail
         echo "::group::Apply SUSFS patches"
         cd "$KERNEL_PLATFORM_FOLDER"
         echo "Applying SUSFS patches..."
@@ -887,6 +887,7 @@ runs:
         if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
           cd "$KSUN_FOLDER"
           patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+
           # Generic approach: Find and patch any ksu.c found in the kernel platform directory
           echo "DEBUG: Searching for ksu.c to patch..."
           find -L "$KERNEL_PLATFORM_FOLDER" -name "ksu.c" -type f -print0 | while IFS= read -r -d '' file; do
@@ -923,7 +924,31 @@ runs:
               done
               patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
               ;;
+            "v2.0.0")
+              cd "$KSUN_FOLDER"
+              for patch_file in \
+                fix_Makefile.patch \
+                fix_allowlist.c.patch \
+                fix_kernel_umount.c.patch \
+                fix_ksu.c.patch \
+                fix_ksud.c.patch \
+                fix_sucompat.c.patch \
+                fix_supercalls.c.patch \
+                multi_manager.patch; do
+                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/$patch_file"
+              done
+              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
+              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
+              ;;
+            *)
+              echo "::error::Unsupported SUSFS version: $susfs_version"
+              exit 1
+              ;;
           esac
+
+          if [ -f "$KSUN_FOLDER/ksun_susfs_latest.patch" ]; then
+            patch -p1 --forward < "$KSUN_FOLDER/ksun_susfs_latest.patch"
+          fi
         else
           cd "$KSU_FOLDER"
           patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
@@ -993,6 +1018,11 @@ runs:
               sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
             fi
           fi
+        fi
+        if find "$KERNEL_PLATFORM_FOLDER" -maxdepth 6 -name "*.rej" | head -n1 | grep -q .; then
+          echo "::error::SUSFS patching produced .rej files"
+          find "$KERNEL_PLATFORM_FOLDER" -maxdepth 6 -name "*.rej" -print
+          exit 1
         fi
         echo "✅ SUSFS patches applied"
         echo "::endgroup::"
@@ -1125,23 +1155,33 @@ runs:
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_KSU=y
         CONFIG_KSU_KPROBES_HOOK=n
-        CONFIG_KSU_SUSFS=y
-        CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-        CONFIG_KSU_SUSFS_SUS_PATH=y
-        CONFIG_KSU_SUSFS_SUS_MOUNT=y
-        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-        CONFIG_KSU_SUSFS_SUS_KSTAT=y
-        CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-        CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-        CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-        CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-        CONFIG_KSU_SUSFS_ENABLE_LOG=y
-        CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-        CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-        CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-        CONFIG_KSU_SUSFS_SUS_MAP=y
-        CONFIG_KSU_SUSFS_SUS_SU=n
+        EOF
+        
+        if [ "$OP_SUSFS" = "true" ]; then
+          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          CONFIG_KSU_SUSFS_SUS_SU=n
+          EOF
+        else
+          echo "::warning::SUSFS disabled (OP_SUSFS=false)"
+        fi
+        
+        cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_TMPFS_XATTR=y
         CONFIG_TMPFS_POSIX_ACL=y
         EOF
