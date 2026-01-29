@@ -887,6 +887,11 @@ runs:
         if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
           cd "$KSUN_FOLDER"
           patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
+          # Manually ensure header is included if patch failed to add it
+          if ! grep -q "#include <linux/susfs.h>" kernel/ksu.c; then
+             echo "⚠️ Header missing in ksu.c, adding it..."
+             sed -i '/#include <linux\/version.h>/a #include <linux/susfs.h>' kernel/ksu.c || sed -i '1i #include <linux/susfs.h>' kernel/ksu.c
+          fi
           case "$susfs_version" in
             "v1.5.8")
               patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch"
