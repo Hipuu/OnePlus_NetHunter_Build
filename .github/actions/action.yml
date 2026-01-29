@@ -887,21 +887,17 @@ runs:
         if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
           cd "$KSUN_FOLDER"
           patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-          # Manually ensure header is included if patch failed to add it
-          if ! grep -q "#include <linux/susfs.h>" kernel/ksu.c; then
-             echo "⚠️ Header missing in ksu.c, adding it..."
-             sed -i '/#include <linux\/version.h>/a #include <linux/susfs.h>' kernel/ksu.c || sed -i '1i #include <linux/susfs.h>' kernel/ksu.c
-          fi
-          
-          # Also check drivers/kernelsu/ksu.c in the common kernel folder
-          KSU_C_PATH="$COMMON_KERNEL_FOLDER/drivers/kernelsu/ksu.c"
-          if [ -f "$KSU_C_PATH" ]; then
-             echo "Checking $KSU_C_PATH for SUSFS header..."
-             if ! grep -q "#include <linux/susfs.h>" "$KSU_C_PATH"; then
-                echo "⚠️ Header missing in drivers/kernelsu/ksu.c, adding it..."
-                sed -i '/#include <linux\/version.h>/a #include <linux/susfs.h>' "$KSU_C_PATH" || sed -i '1i #include <linux/susfs.h>' "$KSU_C_PATH"
-             fi
-          fi
+          # Generic approach: Find and patch any ksu.c found in the kernel platform directory
+          echo "DEBUG: Searching for ksu.c to patch..."
+          find "$KERNEL_PLATFORM_FOLDER" -name "ksu.c" -print0 | while IFS= read -r -d '' file; do
+              echo "Checking $file for SUSFS header..."
+              if ! grep -q "#include <linux/susfs.h>" "$file"; then
+                  echo "⚠️ Header missing in $file, adding it..."
+                  sed -i '/#include <linux\/version.h>/a #include <linux/susfs.h>' "$file" || sed -i '1i #include <linux/susfs.h>' "$file"
+              else
+                  echo "✅ Header already present in $file"
+              fi
+          done
 
           case "$susfs_version" in
             "v1.5.8")
